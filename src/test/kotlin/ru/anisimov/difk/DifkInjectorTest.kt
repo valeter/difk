@@ -157,17 +157,17 @@ class DifkInjectorTest {
                 getProperty("db.driver.class.name")!!,
                 getProperty("db.username")!!,
                 getProperty("db.password")!!
-                ) })
+        ) })
         val dao = addSingleton("dao", { Dao(dataSource) })
         val service = addSingleton("service", { val s = Service(dao); s.init(); s })
         addDestructor { service.close() }
 
         assertFalse(service.closed!!)
-        assertNotNull(service.dao.dataSource)
-        assertEquals("my_url", service.dao.dataSource.url)
-        assertEquals("my_class", service.dao.dataSource.driverClassName)
-        assertEquals("my_user", service.dao.dataSource.username)
-        assertEquals("my_password", service.dao.dataSource.password)
+        val difkService: Service = getInstance("service")
+        assertEquals("my_url", difkService.dao.dataSource.url)
+        assertEquals("my_class", difkService.dao.dataSource.driverClassName)
+        assertEquals("my_user", difkService.dao.dataSource.username)
+        assertEquals("my_password", difkService.dao.dataSource.password)
 
         DifkInjector.close()
         assertTrue(service.closed!!)
