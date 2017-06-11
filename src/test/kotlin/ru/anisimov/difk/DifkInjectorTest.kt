@@ -176,7 +176,7 @@ class DifkInjectorTest {
 
     class DataSource(val url: String, val driverClassName: String, val username: String, val password: String)
 
-    class Dao(var dataSource: DataSource)
+    class Dao(val dataSource: DataSource)
 
     class Service(val dao: Dao) {
         var closed: Boolean? = null
