@@ -1,0 +1,14 @@
+/build/
+.gradle/
+target/
+bin/
+.project
+.classpath
+.settings/
+*~
+*.orig
+*.new
+.idea/
+*.iml
+*.ipr
+extensions/**/build/
