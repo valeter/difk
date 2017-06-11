@@ -1,6 +1,5 @@
 DIFK (Dependency Injection For Kotlin)
-
----
+====
 
 Latest release: [0.1](/releases/difk-0.1.jar)
 
