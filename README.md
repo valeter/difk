@@ -46,11 +46,10 @@ fun simpleScenario() {
     addDestructor { service.close() }
 
     assertFalse(service.closed!!)
-    assertNotNull(service.dao.dataSource)
-    assertEquals("my_url", service.dao.dataSource.url)
-    assertEquals("my_class", service.dao.dataSource.driverClassName)
-    assertEquals("my_user", service.dao.dataSource.username)
-    assertEquals("my_password", service.dao.dataSource.password)
+    assertEquals("my_url", getInstance("service", Service::class)?.dao?.dataSource?.url)
+    assertEquals("my_class", getInstance("service", Service::class)?.dao?.dataSource?.driverClassName)
+    assertEquals("my_user", getInstance("service", Service::class)?.dao?.dataSource?.username)
+    assertEquals("my_password", getInstance("service", Service::class)?.dao?.dataSource?.password)
 
     DifkInjector.close()
     assertTrue(service.closed!!)
