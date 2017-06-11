@@ -3,7 +3,7 @@ DIFK (Dependency Injection For Kotlin)
 
 Latest release: [0.1](/releases/difk-0.1.jar)
 
-CI: not implemented
+CI: [![Build Status](https://travis-ci.org/valeter/difk.svg?branch=master)](https://travis-ci.org/valeter/difk)
 
 Email: [ivananisimov2010@gmail.com](mailto:ivananisimov2010@gmail.com)
 
