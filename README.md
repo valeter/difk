@@ -47,6 +47,7 @@ fun simpleScenario() {
     
     assertFalse(service.closed!!)
     val difkService: Service = getInstance("service")
+    assertTrue(service === difkService)
     assertEquals("my_url", difkService.dao.dataSource.url)
     assertEquals("my_class", difkService.dao.dataSource.driverClassName)
     assertEquals("my_user", difkService.dao.dataSource.username)
