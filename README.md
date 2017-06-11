@@ -40,17 +40,18 @@ fun simpleScenario() {
             getProperty("db.driver.class.name")!!,
             getProperty("db.username")!!,
             getProperty("db.password")!!
-            ) })
+    ) })
     val dao = addSingleton("dao", { Dao(dataSource) })
     val service = addSingleton("service", { val s = Service(dao); s.init(); s })
     addDestructor { service.close() }
-
+    
     assertFalse(service.closed!!)
-    assertEquals("my_url", getInstance("service", Service::class)?.dao?.dataSource?.url)
-    assertEquals("my_class", getInstance("service", Service::class)?.dao?.dataSource?.driverClassName)
-    assertEquals("my_user", getInstance("service", Service::class)?.dao?.dataSource?.username)
-    assertEquals("my_password", getInstance("service", Service::class)?.dao?.dataSource?.password)
-
+    val difkService: Service = getInstance("service")
+    assertEquals("my_url", difkService.dao.dataSource.url)
+    assertEquals("my_class", difkService.dao.dataSource.driverClassName)
+    assertEquals("my_user", difkService.dao.dataSource.username)
+    assertEquals("my_password", difkService.dao.dataSource.password)
+    
     DifkInjector.close()
     assertTrue(service.closed!!)
 }
