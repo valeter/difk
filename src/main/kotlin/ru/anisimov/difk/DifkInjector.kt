@@ -14,88 +14,123 @@
  * limitations under the License.
  */
 
+package ru.anisimov.difk
+
 import java.io.BufferedInputStream
 import java.io.FileInputStream
 import java.util.*
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.collections.ArrayList
-import kotlin.reflect.KClass
-import kotlin.reflect.full.cast
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
 
-typealias DifkSupplier<T> = () -> T
-typealias DifkDestructor = () -> Unit
+internal typealias DifkSupplier<T> = () -> T
+internal typealias DifkAction = () -> Unit
 
-object DifkInjector {
-    val shutdownLock = Any()
-    var shutdownHook: Thread? = null
+/**
+ * @author Ivan Anisimov
+ *         valter@yandex-team.ru
+ *         14.09.17
+ */
+class DifkInjector {
+    internal var shutdownHook: Thread? = null
 
-    val buildersByName: MutableMap<String, DifkSupplier<Any>> = HashMap()
-    val buildersByClass: MutableMap<KClass<*>, MutableList<DifkSupplier<Any>>> = HashMap()
-    val destructors: MutableList<DifkDestructor> = ArrayList()
-    val properties = Properties()
+    private val wrappersByName: MutableMap<String, InstanceWrapper<*>> = HashMap()
+    private val initializers: MutableList<DifkAction> = ArrayList()
+    private val destructors: MutableList<DifkAction> = ArrayList()
+    private val dependencyRelations: MutableMap<String, MutableSet<String>> = HashMap()
+    private val properties = Properties()
 
+    private val initInProcess: AtomicBoolean = AtomicBoolean(false)
+    private val initialized: AtomicBoolean = AtomicBoolean(false)
 
-    fun <T : Any> addSingleton(name: String, builder: DifkSupplier<T>): T {
-        val instance = builder()
-        addInstance(name, { instance }, instance)
-        return instance
+    fun <T : Any> addSingleton(id: String, builder: DifkSupplier<T>): DifkInjector {
+        throwExceptionIfInitialized()
+        wrappersByName.put(id, SingletonWrapper(builder, false))
+        return this
     }
 
-    fun <T : Any> addPrototype(name: String, builder: DifkSupplier<T>): T {
-        val instance = builder()
-        addInstance(name, builder, instance)
-        return instance
+    fun <T : Any> addSingleton(id: String, builder: DifkSupplier<T>, lazy: Boolean): DifkInjector {
+        throwExceptionIfInitialized()
+        wrappersByName.put(id, SingletonWrapper(builder, lazy))
+        return this
     }
 
-    fun <T : Any> addThreadLocal(name: String, builder: DifkSupplier<T>): T {
-        val instance = ThreadLocal.withInitial(builder)
-        addInstance(name, { instance.get() }, instance)
-        return instance.get()
+    fun <T : Any> addPrototype(id: String, builder: DifkSupplier<T>): DifkInjector {
+        throwExceptionIfInitialized()
+        wrappersByName.put(id, PrototypeWrapper(builder))
+        return this
     }
 
-    fun addDestructor(destructor: DifkDestructor) {
+    fun <T : Any> addThreadLocal(id: String, builder: DifkSupplier<T>): DifkInjector {
+        throwExceptionIfInitialized()
+        wrappersByName.put(id, ThreadLocalWrapper(builder))
+        return this
+    }
+
+    fun addSingletonDependency(idDependant: String, idProvider: String) {
+        throwExceptionIfInitialized()
+        if (idDependant == idProvider) {
+            throw RuntimeException("Instance can't depend on itself")
+        }
+        dependencyRelations.putIfAbsent(idProvider, HashSet())
+        dependencyRelations[idProvider]?.add(idDependant)
+    }
+
+    fun addInitializer(initializer: DifkAction) {
+        throwExceptionIfInitialized()
+        initializers.add(initializer)
+    }
+
+    fun addDestructor(destructor: DifkAction) {
+        throwExceptionIfInitialized()
         destructors.add(destructor)
     }
 
-    fun <T> getInstance(name: String): T {
-        return buildersByName[name]?.invoke() as T
+    fun <T> getInstanceOrNull(id: String): T? {
+        throwExceptionIfNotInitialized()
+        return wrappersByName[id]?.instance() as T?
     }
 
-    fun <T : Any> getInstance(name: String, clazz: KClass<T>): T? {
-        return buildersByName[name]?.invoke()
-                ?.let { clazz.cast(it) }
+    fun <T> getInstance(id: String): T {
+        return getInstanceOrNull(id) ?: throw RuntimeException("Bean with id {id} not found")
     }
 
-    fun <T : Any> getInstances(clazz: KClass<T>): List<T> {
-        return buildersByClass.getOrDefault(clazz, mutableListOf<DifkSupplier<Any>>())
-                .map { clazz.cast(it()) }
-                .toList()
-    }
-
-    fun addPropertiesFromClasspath(fileName: String) {
+    fun loadPropertiesFromClasspath(fileName: String) {
+        throwExceptionIfInitialized()
         properties.load(BufferedInputStream(this.javaClass.classLoader.getResourceAsStream(fileName)))
     }
 
-    fun addPropertiesFromFile(fileName: String) {
+    fun loadPropertiesFromFile(fileName: String) {
+        throwExceptionIfInitialized()
         properties.load(BufferedInputStream(FileInputStream(fileName)))
     }
 
-    fun getProperty(name: String): String? {
+    fun getPropertyOrNull(name: String): String? {
+        throwExceptionIfNotInitialized()
         return properties.getProperty(name)
     }
 
+    fun getProperty(name: String): String {
+        return getPropertyOrNull(name) ?: throw RuntimeException("Property with name {name} does not exists")
+    }
+
     fun getProperty(name: String, default: String): String {
+        throwExceptionIfNotInitialized()
         return properties.getProperty(name, default)
     }
 
     fun setProperty(name: String, value: String) {
+        throwExceptionIfInitialized()
         properties.setProperty(name, value)
     }
 
     fun registerShutdownHook() {
+        throwExceptionIfInitialized()
         if (shutdownHook == null) {
             shutdownHook = object : Thread() {
                 override fun run() {
-                    synchronized(shutdownLock) {
+                    synchronized(this) {
                         doClose()
                     }
                 }
@@ -104,8 +139,82 @@ object DifkInjector {
         }
     }
 
+    fun init() {
+        synchronized(this) {
+            initInProcess.set(true)
+            throwExceptionIfInitialized()
+            createSingletons()
+            doInitialize()
+            initialized.set(true)
+            initInProcess.set(false)
+        }
+    }
+
+    private fun createSingletons() {
+        checkDependencyRelations()
+        val initOrder = instanceInitOrder()
+        initOrder
+                .map { { id: String -> wrappersByName[id] } }
+                .filter { it::class == SingletonWrapper::class }
+                .map { it as SingletonWrapper<*> }
+                .filterNot { it.lazy }
+                .forEach { it.instance() }
+    }
+
+    private fun instanceInitOrder(): List<String> {
+        val instancesWithDefinedDependencies = sortRelations(dependencyRelations)
+        val instancesWithoutDefinedDependencies = HashSet(wrappersByName.keys)
+        instancesWithoutDefinedDependencies.removeAll(instancesWithDefinedDependencies)
+        instancesWithDefinedDependencies.addAll(instancesWithoutDefinedDependencies)
+        return instancesWithDefinedDependencies
+    }
+
+    internal fun sortRelations(dependencies: MutableMap<String, MutableSet<String>>): MutableList<String> {
+        val graph = Graph(dependencies)
+        if (hasCycles(graph)) {
+            throw RuntimeException("Instances dependency graph has cycles")
+        }
+        return ArrayList(bfs(graph))
+    }
+
+    private fun checkDependencyRelations() {
+        val instances: MutableSet<String> = HashSet()
+        for ((key, value) in dependencyRelations) {
+            instances.add(key)
+            instances.addAll(value)
+        }
+        instances
+                .filterNot { singletonExists(it) }
+                .forEach { throw RuntimeException("One of singletons in relation does not exists: [{key} -> {value}]") }
+    }
+
+    private fun singletonExists(id: String): Boolean {
+        val wrapper = wrappersByName[id]
+        return if (wrapper == null) false else wrapper::class == SingletonWrapper::class
+    }
+
+    private fun doInitialize() {
+        for (initializer in initializers) {
+            initializer()
+        }
+    }
+
+    private fun throwExceptionIfInitialized() {
+        if (initialized.get()) {
+            throw RuntimeException("Context is already initialized")
+        }
+    }
+
+    private fun throwExceptionIfNotInitialized() {
+        if (!initialized.get() && !initInProcess.get()) {
+            throw RuntimeException("Context is not initialized")
+        }
+    }
+
     fun close() {
-        synchronized(shutdownLock) {
+        synchronized(this) {
+            throwExceptionIfNotInitialized()
+
             doClose()
 
             if (this.shutdownHook != null) {
@@ -129,21 +238,47 @@ object DifkInjector {
     }
 
     private fun clear() {
-        buildersByName.clear()
-        buildersByClass.clear()
+        wrappersByName.clear()
         destructors.clear()
         properties.clear()
         shutdownHook = null
     }
 
-    private fun <T : Any> addInstance(name: String, builder: DifkSupplier<T>, instance: T) {
-        buildersByName.put(name, builder)
-        buildersByClass.compute(instance::class) { _, v ->
-            if (v == null)
-                mutableListOf(builder)
-            else {
-                v.add(builder)
-                v
-            }}
+    private abstract class InstanceWrapper<out T>(val builder: DifkSupplier<T>) {
+        abstract fun instance(): T
+    }
+
+    private class SingletonWrapper<T>(builder: DifkSupplier<T>, val lazy: Boolean) : InstanceWrapper<T>(builder) {
+        val holder: InstanceWrapper<T>
+
+        override fun instance(): T {
+            return holder.instance()
+        }
+
+        init {
+            this.holder = object : InstanceWrapper<T>(builder) {
+                val instance: T by lazy {
+                    builder.invoke()
+                }
+
+                override fun instance(): T {
+                    return instance
+                }
+            }
+        }
+    }
+
+    private class PrototypeWrapper<out T>(builder: DifkSupplier<T>) : InstanceWrapper<T>(builder) {
+        override fun instance(): T {
+            return builder()
+        }
+    }
+
+    private class ThreadLocalWrapper<T>(builder: DifkSupplier<T>) : InstanceWrapper<T>(builder) {
+        val threadLocalBuilder: ThreadLocal<T> = ThreadLocal.withInitial(builder)
+
+        override fun instance(): T {
+            return threadLocalBuilder.get()
+        }
     }
 }

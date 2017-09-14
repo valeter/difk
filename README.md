@@ -25,7 +25,7 @@ Choose DIFK
 ```
 import DifkInjector
 import DifkInjector.addDestructor
-import DifkInjector.addPropertiesFromClasspath
+import DifkInjector.loadPropertiesFromClasspath
 import DifkInjector.addSingleton
 import DifkInjector.getProperty
 import org.junit.Assert.*
@@ -34,7 +34,7 @@ import org.junit.Test
 
 @Test
 fun simpleScenario() {
-    addPropertiesFromClasspath("test.properties")
+    loadPropertiesFromClasspath("test.properties")
     val dataSource = addSingleton("dataSource", { DataSource(
             getProperty("db.url")!!,
             getProperty("db.driver.class.name")!!,
@@ -77,7 +77,7 @@ class Service(val dao: Dao) {
 **Features**
 
 - 3 types of instances supported: singletons (single instance), prototypes (new instance for every call) and thread locals (new instance for every thread)
-- property management support (`addPropertiesFromFile`, `addPropertiesFromClasspath`)
+- property management support (`addPropertiesFromFile`, `loadPropertiesFromClasspath`)
 - init and destroy methods support (look at example)
 - simple explicit configuration with kotlin code
 - preserving your favourite kotlin style

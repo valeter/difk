@@ -16,17 +16,7 @@
 
 package ru.anisimov.difk
 
-import DifkInjector
-import DifkInjector.addDestructor
-import DifkInjector.addPropertiesFromClasspath
-import DifkInjector.addPrototype
-import DifkInjector.addSingleton
-import DifkInjector.addThreadLocal
-import DifkInjector.getInstance
-import DifkInjector.getProperty
-import DifkInjector.setProperty
 import org.junit.Assert.*
-import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -37,95 +27,139 @@ import java.util.concurrent.atomic.AtomicInteger
  * *         11.06.17
  */
 class DifkInjectorTest {
-    @Before
-    fun init() {
-        DifkInjector.close()
+    @Test
+    fun loadProperties() {
+        val injector = DifkInjector()
+        injector.loadPropertiesFromClasspath("test.properties")
+        injector.init()
+        assertEquals("my_url", injector.getProperty("db.url"))
+    }
+
+    @Test(expected = RuntimeException::class)
+    fun loadPropertiesAfterInit() {
+        val injector = DifkInjector()
+        injector.init()
+        injector.loadPropertiesFromClasspath("test.properties")
     }
 
     @Test
-    fun getProperty() {
-        addPropertiesFromClasspath("test.properties")
-        assertEquals("my_url", getProperty("db.url"))
-        setProperty("db.url", "my_url_1")
-        assertEquals("my_url_1", getProperty("db.url", "none"))
-        setProperty("db.url.2", "my_url_2")
-        assertEquals("my_url_1", getProperty("db.url", "none"))
-        assertEquals("my_url_2", getProperty("db.url.2", "none"))
+    fun setProperty() {
+        val injector = DifkInjector()
+        injector.setProperty("db.url.2", "my_url_2")
+        injector.init()
+        assertEquals("my_url_2", injector.getProperty("db.url.2"))
+    }
+
+    @Test(expected = RuntimeException::class)
+    fun setPropertyAfterInit() {
+        val injector = DifkInjector()
+        injector.init()
+        injector.setProperty("my.property", "my_value")
     }
 
     @Test
+    fun getPropertyOrNull() {
+        val injector = DifkInjector()
+        injector.loadPropertiesFromClasspath("test.properties")
+        injector.init()
+        assertEquals(null, injector.getPropertyOrNull("db.url.2"))
+    }
+
+    /*@Test
     fun getInstances() {
+        val injector = DifkInjector()
         val first = Any()
         val second = Any()
-        addSingleton("first", { first })
-        addSingleton("second", { second })
-        val instances: List<Any> = DifkInjector.getInstances(Any::class)
+        injector.addSingleton("first", { first })
+        injector.addSingleton("second", { second })
+        injector.init()
+        val instances: List<Any> = injector.getInstances(Any::class)
         assertEquals(2, instances.size)
         assertTrue(first === instances[0])
         assertTrue(second === instances[1])
-    }
+    }*/
 
     @Test
     fun singletonIsAlwaysTheSame() {
-        addSingleton("single", { Any() })
-        val instance = getInstance("single", Any::class)
+        val injector = DifkInjector()
+        injector.addSingleton("single", { Any() })
+        injector.init()
+        val instance: Any = injector.getInstance("single")
         for (i in 99 downTo 0) {
-            assertEquals(instance, getInstance("single"))
+            assertEquals(instance, injector.getInstance("single"))
         }
     }
 
     @Test
     fun prototypeIsAlwaysNew() {
-        addPrototype("proto", { Any() })
+        val injector = DifkInjector()
+        injector.addPrototype("proto", { Any() })
+        injector.init()
         val set: MutableSet<Any> = HashSet()
         for (i in 99 downTo 0) {
-            set.add(getInstance("proto"))
+            set.add(injector.getInstance("proto"))
         }
         assertEquals(100, set.size)
     }
 
     @Test
     fun destructorRunOnClose() {
+        val injector = DifkInjector()
         val destructed = AtomicBoolean(false)
-        addDestructor { destructed.set(true) }
-        DifkInjector.close()
+        injector.addDestructor { destructed.set(true) }
+        injector.init()
+        injector.close()
         assertTrue(destructed.get())
     }
 
     @Test
     fun registerShutdownHookRegisterHookForDestructors() {
+        val injector = DifkInjector()
         val destructed = AtomicBoolean(false)
-        addDestructor { destructed.set(true) }
-        assertNull(DifkInjector.shutdownHook)
-        DifkInjector.registerShutdownHook()
-        assertNotNull(DifkInjector.shutdownHook)
+        injector.addDestructor { destructed.set(true) }
+        assertNull(injector.shutdownHook)
+        injector.registerShutdownHook()
+        assertNotNull(injector.shutdownHook)
         assertFalse(destructed.get())
-        DifkInjector.shutdownHook!!.start()
-        DifkInjector.shutdownHook!!.join()
+        injector.shutdownHook!!.start()
+        injector.shutdownHook!!.join()
         assertTrue(destructed.get())
     }
 
     @Test
     fun registerShutdownHookRegistersInRuntime() {
-        DifkInjector.registerShutdownHook()
-        assertTrue(Runtime.getRuntime().removeShutdownHook(DifkInjector.shutdownHook))
+        val injector = DifkInjector()
+        injector.registerShutdownHook()
+        assertTrue(Runtime.getRuntime().removeShutdownHook(injector.shutdownHook))
     }
 
     @Test
     fun notExistingBeanReturnsNull() {
-        assertNull(getInstance("not_existing", this::class))
+        val injector = DifkInjector()
+        injector.init()
+        assertNull(injector.getInstanceOrNull("not_existing"))
+    }
+
+    @Test(expected = RuntimeException::class)
+    fun notExistingBeanThrowsException() {
+        val injector = DifkInjector()
+        injector.init()
+        assertNull(injector.getInstance("not_existing"))
     }
 
     @Test
     fun threadLocalIsUniqueForEachThread() {
+        val injector = DifkInjector()
         val counter = AtomicInteger(-1)
-        addThreadLocal("counter", { counter.getAndIncrement() })
+        injector.addThreadLocal("counter", { counter.incrementAndGet() })
+        injector.init()
+
         val values = Array(100, { 0 })
         val threads = ArrayList<Thread>()
         (99 downTo 0).mapTo(threads) {
             object : Thread() {
                 override fun run() {
-                    values[it] = getInstance("counter")
+                    values[it] = injector.getInstance("counter")
                 }
             }
         }
@@ -133,7 +167,7 @@ class DifkInjectorTest {
             it.start()
             it.join()
         }
-        assertEquals(100, counter.get())
+        assertEquals(99, counter.get())
         values.sort()
         for(i in 99 downTo 0) {
             assertEquals(i, values[i])
@@ -142,36 +176,64 @@ class DifkInjectorTest {
 
     @Test
     fun threadLocalIsSingletonInsideThread() {
+        val injector = DifkInjector()
         val counter = AtomicInteger(-1)
-        val value = addThreadLocal("counter", { counter.getAndIncrement() })
+        injector.addThreadLocal("counter", { counter.incrementAndGet() })
+        injector.init()
         for (i in 99 downTo 0) {
-            assertEquals(value, getInstance("counter"))
+            assertEquals(0, injector.getInstance("counter"))
         }
     }
 
     @Test
     fun simpleScenario() {
-        addPropertiesFromClasspath("test.properties")
-        val dataSource = addSingleton("dataSource", { DataSource(
-                getProperty("db.url")!!,
-                getProperty("db.driver.class.name")!!,
-                getProperty("db.username")!!,
-                getProperty("db.password")!!
+        val injector = DifkInjector()
+        injector.loadPropertiesFromClasspath("test.properties")
+        injector.addSingleton("dataSource", { DataSource(
+                injector.getProperty("db.url"),
+                injector.getProperty("db.driver.class.name"),
+                injector.getProperty("db.username"),
+                injector.getProperty("db.password")
         ) })
-        val dao = addSingleton("dao", { Dao(dataSource) })
-        val service = addSingleton("service", { val s = Service(dao); s.init(); s })
-        addDestructor { service.close() }
+        injector.addSingleton("dao", { Dao(injector.getInstance("dataSource")) })
+        injector.addSingleton("service", { val s = Service(injector.getInstance("dao")); s.init(); s })
+        injector.addDestructor {
+            val service: Service = injector.getInstance("service")
+            service.close()
+        }
+        injector.init()
 
+        val service: Service = injector.getInstance("service")
         assertFalse(service.closed!!)
-        val difkService: Service = getInstance("service")
+        val difkService: Service = injector.getInstance("service")
         assertTrue(service === difkService)
         assertEquals("my_url", difkService.dao.dataSource.url)
         assertEquals("my_class", difkService.dao.dataSource.driverClassName)
         assertEquals("my_user", difkService.dao.dataSource.username)
         assertEquals("my_password", difkService.dao.dataSource.password)
 
-        DifkInjector.close()
+        injector.close()
         assertTrue(service.closed!!)
+    }
+
+    @Test
+    fun sortRelations() {
+        val injector = DifkInjector()
+        val graph: MutableMap<String, MutableSet<String>> = HashMap()
+        graph.put("1", HashSet(listOf("2", "3")))
+        graph.put("2", HashSet(listOf("4", "5")))
+        graph.put("3", HashSet(listOf("6", "7")))
+        assertEquals("1234567".split("").subList(1, 8), injector.sortRelations(graph))
+    }
+
+    @Test(expected = RuntimeException::class)
+    fun sortRelationsWithCycle() {
+        val injector = DifkInjector()
+        val graph: MutableMap<String, MutableSet<String>> = HashMap()
+        graph.put("1", HashSet(listOf("2", "3")))
+        graph.put("2", HashSet(listOf("4", "5")))
+        graph.put("3", HashSet(listOf("6", "1")))
+        injector.sortRelations(graph)
     }
 
     class DataSource(val url: String, val driverClassName: String, val username: String, val password: String)
